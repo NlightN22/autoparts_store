@@ -1,32 +1,61 @@
-import express, { Request, Response } from "express";
-import {UserRepo} from "./data/repo/UserRepo";
-import {newUser} from "./data/mock/newUser";
-import {AppDataSource} from "./data/data-source";
+import {randomInt} from "crypto";
 
-const app = express()
-
-app.use(express.json())
-
-app.get("/", (req, res) => {
-    res.json({
-        message: "Hello from TypeScript node. Change"
-    })
-})
+require('dotenv').config()
 
 
+import {Request, Response} from "express";
 
-// Init DataBase
-if (!AppDataSource.isInitialized) {
-    AppDataSource.initialize()
-    console.log(`Initialize data base ${AppDataSource.options.database} `)
-    if (!AppDataSource.isInitialized) {throw Error("Can't initialize database")}
+const express = require('express')
+
+import {PrismaClient, Prisma} from '@prisma/client'
+import {handleDbErrors} from "./error/handleDbErrors";
+
+const prisma = new PrismaClient()
+
+const newUser = async () => {
+    const data = {
+        name: `Test${randomInt(1000)}`,
+        email: `test1@mail.com`
+    }
+    try {
+        console.log("Inserting a new user into the database...")
+        await prisma.user.create({
+            data
+        })
+    } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError) {
+            handleDbErrors(e, data)
+        } else {
+            console.error(e)
+            throw e
+        }
+    }
 }
-// Test DB
-const userRepo = new UserRepo()
-userRepo.add(newUser)
 
-const port = process.env.SERVER_PORT || 5000
+const start = async () => {
+    try {
+        const app = express()
+        const PORT = process.env.SERVER_PORT || 5000
 
-app.listen(port, () => {
-    console.log(`Server is running on port ${port}`)
-})
+        await newUser()
+
+        app.get("/", async (req: Request, res: Response) => {
+            console.log("Loading users from the database...")
+            const users = await prisma.user.findMany()
+            res.json(users)
+        })
+
+        app.get("/user/clear_all", async (req: Request, res: Response) => {
+            console.log("Clear ALL users from database...")
+            await prisma.user.deleteMany()
+            res.json({result: "OK"})
+        })
+
+        app.listen(PORT, () => console.log(`Server started on port ${PORT}`))
+
+    } catch (e) {
+        console.error(e)
+    }
+}
+
+start()
